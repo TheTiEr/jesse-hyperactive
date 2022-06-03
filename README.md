@@ -12,7 +12,7 @@ Check jesse-hyperactive.log for errors during optimization.
 
 ```sh
 # install from git
-pip install git+https://github.com/cryptocoinserver/jesse-hyperactive.git
+pip install git+https://github.com/thetier/jesse-hyperactive.git
 
 # cd in your Jesse project directory
 
@@ -25,6 +25,9 @@ jesse-hyperactive create-config
 jesse-hyperactive run
 
 ```
+
+# Thanks
+A special thanks to cryptocoinserver for setting up the framework to use hyperactive with jesse. 
 
 
 ## Disclaimer
