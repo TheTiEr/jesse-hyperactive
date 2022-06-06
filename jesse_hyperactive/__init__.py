@@ -256,7 +256,8 @@ def batchrun() -> None:
             cfg['hp_set'] = hp_set
             update_config(cfg)
             run_optimization(batchmode=True, cfg=cfg, hp_dict=batch_dict['search_hyperparamerts'][hp_set])
-
+            best_candidates_hps = get_best_candidates(cfg)
+            create_charts(best_candidates_hps, cfg)
 
 def get_batch_dict() -> dict:
     batch_path = "hyperactive_batch.json"
@@ -406,15 +407,19 @@ def objective(opt):
                                                   cfg['timespan']['finish_date'],
                                                   hp=opt, cfg=cfg)
     except Exception as err:
+        print(err)
         logger.error("".join(traceback.TracebackException.from_exception(err).format()))
         return np.nan
 
     if training_data_metrics is None:
+        logger.error("Metrics is None")
         return np.nan
 
     if training_data_metrics['total'] <= 5:
+        logger.error("No Trades")
         return np.nan
 
+    print("HELOOF")
     total_effect_rate = np.log10(training_data_metrics['total']) / np.log10(cfg['optimal-total'])
     total_effect_rate = min(total_effect_rate, 1)
     ratio_config = cfg['fitness-ratio']
@@ -443,6 +448,7 @@ def objective(opt):
         raise ValueError(
             f'The entered ratio configuration `{ratio_config}` for the optimization is unknown. Choose between sharpe, calmar, sortino, serenity, smart shapre, smart sortino and omega.')
     if ratio < 0:
+        logger.error("Ratio is below 0")
         return np.nan
 
     score = total_effect_rate * ratio_normalized
@@ -457,13 +463,14 @@ def objective(opt):
         parameter_dict[f'training_{key}'] = value
 
     path = get_csv_path(cfg)
-
+    print(path)
     # append parameter dictionary to csv
     with open(path, "a") as f:
         writer = csv.writer(f, delimiter='\t')
         fields = parameter_dict.values()
         writer.writerow(fields)
 
+    print(score)
     return score
 
 
@@ -506,7 +513,7 @@ def get_candles_with_cache(exchange: str, symbol: str, start_date: str, finish_d
     return candles
 
 
-def backtest_function(start_date, finish_date, hp, cfg):
+def backtest_function(start_date, finish_date, hp, cfg, charts=False, quantstats=False):
     candles = {}
     extra_routes = []
     if cfg['extra_routes'] is not None:
@@ -548,9 +555,76 @@ def backtest_function(start_date, finish_date, hp, cfg):
         'warm_up_candles': cfg['warm_up_candles']
     }
 
-    backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp)['metrics']
+    if not charts and not quantstats:
+        backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp)['metrics']
+        if backtest_data['total'] == 0:
+            backtest_data = empty_backtest_data
+        return backtest_data
+    else:
+        backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp, generate_charts=True, generate_quantstats=True)
+        return backtest_data
 
-    if backtest_data['total'] == 0:
-        backtest_data = empty_backtest_data
+def get_best_candidates(cfg, start_capital=1000):
+    study_name = get_study_name(cfg)
+    path = get_csv_path(cfg)
 
-    return backtest_data
+    optimization_results = pd.read_csv(path, sep='\t', lineterminator='\n')
+    # filter all results with zero trades
+    results_filtered = optimization_results[optimization_results['total'] > 0]
+    # filert all results with a bad win_rate
+    results_filtered = results_filtered[results_filtered['win_rate'] > 0.85]
+
+    # calculate real profit
+    results_filtered['real_net_profit_percentage'] = results_filtered.net_profit / 1000.0 * 100
+    #calculate the real cumulated drawdown
+    results_filtered['gross_loss_percentage'] = results_filtered.gross_loss / 1000.0 * 100
+    #calculate the real drawdown
+    results_filtered['real_max_loosing_trade_percentage'] = results_filtered.largest_losing_trade / 1000.0 * 100
+
+    # calculate my ratio
+    results_filtered['real_max_loosing_trade_percentage']
+
+    results_filtered['my_ratio2'] = results_filtered.real_net_profit_percentage - (results_filtered.gross_loss_percentage*results_filtered.gross_loss_percentage) + 3*results_filtered.gross_loss_percentage \
+                                * results_filtered.longs_count **(1/5) * results_filtered.win_rate
+
+    # sort the results descending by my_ratio
+    results_filtered = results_filtered.sort_values(by=['my_ratio2'], ascending=False)
+
+    path_to_sorted_results = f"storage/jesse-hyperactive/csv/{study_name}_best.csv"
+    os.makedirs(path_to_sorted_results, exist_ok=True)
+
+    results_filtered.to_csv(path, sep='\t', na_rep='nan', line_terminator='\n')
+    
+    best_hps = {}
+    #check if there enough candidates
+    candidates_count = 5 if results_filtered.shape[0] >=5 else results_filtered.shape[0]
+    if candidates_count == 0: 
+        print("Backtest has no results.")
+        return
+    for i in range(candidates_count):
+        res_row = results_filtered.iloc[[i]]
+        hp_list = {'id': int(res_row.index[0])}
+        for hp in hps:
+            hp_list[hp] = res_row.iloc[0][hp]
+        best_hps[hp_list['id']]  = hp_list
+
+    return best_hps
+
+def create_charts(best_hps, cfg):
+    for hp in best_hps:
+        print("Create the Chart for id", hp)
+        hyperparameters=dict(best_hps[hp])
+
+        backtest_data_dict = backtest_function(cfg['timespan']['start_date'],
+                                                  cfg['timespan']['finish_date'],
+                                                  hp=hyperparameters, cfg=cfg,
+                                                  generate_charts=True, generate_quantstats=True)
+
+        if "charts" in backtest_data_dict:
+            study_name = get_study_name(cfg)
+            path = f"storage/jesse-hyperactive/csv/{study_name}_best_{hp}.png"
+            shutil.copyfile(backtest_data_dict["charts"], path)
+        if "quantstats" in backtest_data_dict:
+            study_name = get_study_name(cfg)
+            path = f"storage/jesse-hyperactive/csv/{study_name}_best_{hp}.html"
+            shutil.copyfile(backtest_data_dict["charts"], path)
