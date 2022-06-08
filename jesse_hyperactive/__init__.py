@@ -259,6 +259,19 @@ def batchrun() -> None:
             best_candidates_hps = get_best_candidates(cfg)
             create_charts(best_candidates_hps, cfg)
 
+@cli.command()
+def create_charts() -> None:
+    cfg = get_config()
+    batch_dict = get_batch_dict()
+    for symbol in batch_dict['symbols']:
+        # run the optimzation for every hyperparameterset
+        for hp_set in batch_dict['search_hyperparamerts']:
+            cfg['symbol'] = symbol
+            cfg['hp_set'] = hp_set
+            update_config(cfg)
+            best_candidates_hps = get_best_candidates(cfg)
+            create_charts(best_candidates_hps, cfg)
+
 def get_batch_dict() -> dict:
     batch_path = "hyperactive_batch.json"
     batch_path = os.path.abspath(batch_path)
@@ -407,7 +420,6 @@ def objective(opt):
                                                   cfg['timespan']['finish_date'],
                                                   hp=opt, cfg=cfg)
     except Exception as err:
-        print(err)
         logger.error("".join(traceback.TracebackException.from_exception(err).format()))
         return np.nan
 
@@ -419,7 +431,6 @@ def objective(opt):
         logger.error("No Trades")
         return np.nan
 
-    print("HELOOF")
     total_effect_rate = np.log10(training_data_metrics['total']) / np.log10(cfg['optimal-total'])
     total_effect_rate = min(total_effect_rate, 1)
     ratio_config = cfg['fitness-ratio']
@@ -463,14 +474,12 @@ def objective(opt):
         parameter_dict[f'training_{key}'] = value
 
     path = get_csv_path(cfg)
-    print(path)
     # append parameter dictionary to csv
     with open(path, "a") as f:
         writer = csv.writer(f, delimiter='\t')
         fields = parameter_dict.values()
         writer.writerow(fields)
 
-    print(score)
     return score
 
 
@@ -590,10 +599,11 @@ def get_best_candidates(cfg, start_capital=1000):
     # sort the results descending by my_ratio
     results_filtered = results_filtered.sort_values(by=['my_ratio2'], ascending=False)
 
-    path_to_sorted_results = f"storage/jesse-hyperactive/csv/{study_name}_best.csv"
-    os.makedirs(path_to_sorted_results, exist_ok=True)
+    path__wo_ext = os.path.splitext(get_csv_path(cfg))[0]
+    path_to_sorted_results = f"{path__wo_ext}_best.csv"
+    os.makedirs(os.path.dirname(path_to_sorted_results), exist_ok=True)
 
-    results_filtered.to_csv(path, sep='\t', na_rep='nan', line_terminator='\n')
+    results_filtered.to_csv(path_to_sorted_results, sep='\t', na_rep='nan', line_terminator='\n')
     
     best_hps = {}
     #check if there enough candidates
@@ -601,6 +611,12 @@ def get_best_candidates(cfg, start_capital=1000):
     if candidates_count == 0: 
         print("Backtest has no results.")
         return
+
+    # get hyperparamter names
+    StrategyClass = jh.get_strategy_class(cfg['strategy_name'])
+    hp_dict = StrategyClass().hyperparameters()
+    hps = [hp['name'] for hp in hp_dict]
+
     for i in range(candidates_count):
         res_row = results_filtered.iloc[[i]]
         hp_list = {'id': int(res_row.index[0])}
@@ -618,13 +634,13 @@ def create_charts(best_hps, cfg):
         backtest_data_dict = backtest_function(cfg['timespan']['start_date'],
                                                   cfg['timespan']['finish_date'],
                                                   hp=hyperparameters, cfg=cfg,
-                                                  generate_charts=True, generate_quantstats=True)
-
+                                                  charts=True, quantstats=True)
+        path__wo_ext = os.path.splitext(get_csv_path(cfg))[0]
         if "charts" in backtest_data_dict:
             study_name = get_study_name(cfg)
-            path = f"storage/jesse-hyperactive/csv/{study_name}_best_{hp}.png"
+            path = f"{path__wo_ext}_best_{hp}.png"
             shutil.copyfile(backtest_data_dict["charts"], path)
         if "quantstats" in backtest_data_dict:
             study_name = get_study_name(cfg)
-            path = f"storage/jesse-hyperactive/csv/{study_name}_best_{hp}.html"
-            shutil.copyfile(backtest_data_dict["charts"], path)
+            path = f"{path__wo_ext}_best_{hp}.html"
+            shutil.copyfile(backtest_data_dict["quantstats"], path)
