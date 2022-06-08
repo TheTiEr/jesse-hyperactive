@@ -263,13 +263,17 @@ def batchrun() -> None:
 def create_charts() -> None:
     cfg = get_config()
     batch_dict = get_batch_dict()
+    print("Going create the charts for the symbols: ", batch_dict["symbols"])
+    start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg, no_download=True)
     for symbol in batch_dict['symbols']:
         # run the optimzation for every hyperparameterset
         for hp_set in batch_dict['search_hyperparamerts']:
+            cfg['timespan']['start_date'] = start_date_dict[symbol]
             cfg['symbol'] = symbol
             cfg['hp_set'] = hp_set
             update_config(cfg)
             best_candidates_hps = get_best_candidates(cfg)
+            print(f"Create Chart for {symbol} - {hp_set}")
             create_charts(best_candidates_hps, cfg)
 
 def get_batch_dict() -> dict:
@@ -327,7 +331,7 @@ def get_batch_dict() -> dict:
         except:
             raise
 
-def import_candles_batch(batch_dict, cfg) -> dict:
+def import_candles_batch(batch_dict, cfg, no_download=False) -> dict:
     # get optimzing dates from the config
     timespans = []
     for key in cfg: 
@@ -344,8 +348,9 @@ def import_candles_batch(batch_dict, cfg) -> dict:
 
     print(f"First testing date is {timespans[first_date]['start_date']}.")
 
-    for symbol in batch_dict['symbols']: 
-        import_candles(cfg['exchange'], str(symbol), timespans[first_date]['start_date'], True)
+    if not no_download:
+        for symbol in batch_dict['symbols']: 
+            import_candles(cfg['exchange'], str(symbol), timespans[first_date]['start_date'], True)
 
     # check if candles are imported succesfully for all symbols: 
     start_date_dict = {}
@@ -593,8 +598,8 @@ def get_best_candidates(cfg, start_capital=1000):
     # calculate my ratio
     results_filtered['real_max_loosing_trade_percentage']
 
-    results_filtered['my_ratio2'] = results_filtered.real_net_profit_percentage - (results_filtered.gross_loss_percentage*results_filtered.gross_loss_percentage) + 3*results_filtered.gross_loss_percentage \
-                                * results_filtered.longs_count **(1/5) * results_filtered.win_rate
+    results_filtered['my_ratio2'] = results_filtered.real_net_profit_percentage# - (results_filtered.gross_loss_percentage*results_filtered.gross_loss_percentage) + 3*results_filtered.gross_loss_percentage \
+                                #* results_filtered.longs_count **(1/5) * results_filtered.win_rate
 
     # sort the results descending by my_ratio
     results_filtered = results_filtered.sort_values(by=['my_ratio2'], ascending=False)
