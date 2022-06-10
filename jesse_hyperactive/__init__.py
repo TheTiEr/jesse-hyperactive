@@ -559,6 +559,9 @@ def objective(opt):
     elif ratio_config == 'smart sortino':
         ratio = training_data_metrics['smart_sortino']
         ratio_normalized = jh.normalize(ratio, -.5, 15)
+    elif ratio_config == 'net profit':
+        ratio = training_data_metrics['net_profit_percentage']
+        ratio_normalized = jh.normalize(ratio, -.5, 200)
     else:
         raise ValueError(
             f'The entered ratio configuration `{ratio_config}` for the optimization is unknown. Choose between sharpe, calmar, sortino, serenity, smart shapre, smart sortino and omega.')

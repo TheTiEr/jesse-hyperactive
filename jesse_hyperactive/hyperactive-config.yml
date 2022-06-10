@@ -1,5 +1,5 @@
-# sharpe, calmar, sortino, omega, serenity, smart sharpe, smart sortino
-fitness-ratio: 'smart sharpe'
+# sharpe, calmar, sortino, omega, serenity, smart sharpe, smart sortino, net profit
+fitness-ratio: 'net profit'
 optimal-total: 300
 
 optimizer: 'RandomRestartHillClimbingOptimizer'
