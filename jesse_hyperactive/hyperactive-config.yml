@@ -11,6 +11,8 @@ n_iter_step2: 1000
 # -1 all cpu
 n_jobs: 10
 
+n_best_candidates: 5
+
 RandomSearchOptimizer:
 
 EvolutionStrategyOptimizer:
