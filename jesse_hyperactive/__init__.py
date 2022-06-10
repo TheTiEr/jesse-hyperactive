@@ -109,7 +109,7 @@ def run_optimization(batchmode=False, cfg=None, hp_dict=None) -> None:
 
     hyper = hyperactive.Hyperactive(distribution="joblib")
 
-        # Evolution Strategy    
+    # Evolution Strategy
     if cfg['optimizer'] == "EvolutionStrategyOptimizer":
         optimizer = hyperactive.optimizers.EvolutionStrategyOptimizer(
             population=cfg[cfg['optimizer']]['population'],
@@ -238,9 +238,28 @@ def run_optimization(batchmode=False, cfg=None, hp_dict=None) -> None:
     hyper.run()
 
 @cli.command()
-def batchrun() -> None:
+def wrs() -> None:
+    wrs_search()
+
+@cli.command()
+def detail() -> None:
+    wrs_search(detail=True)
+
+def wrs_search(detail=False) -> None:
     cfg = get_config()
     batch_dict = get_batch_dict()
+
+    # check if there are already files for the set symbols in this asset
+    symbols_to_skip_wrs = []
+    for symbol in batch_dict['symbols']:
+        # run the optimzation for every hyperparameterset
+        for hp_set in batch_dict['search_hyperparameters']:
+            cfg['timespan']['start_date'] = start_date_dict[symbol]
+            cfg['symbol'] = symbol
+            cfg['hp_set'] = hp_set
+            if check_if_optimization_exists(cfg):
+                symbols_to_skip_wrs.append({'symbol': symbol, 'hp_set':hp_set})
+
     print("Going to run the optimization for the symbols: ", batch_dict["symbols"])
     start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg)
 
@@ -249,15 +268,55 @@ def batchrun() -> None:
     for symbol in batch_dict['symbols']:
         # run the optimzation for every hyperparameterset
         for hp_set in batch_dict['search_hyperparamerts']:
+            # skip the symbols and hp_set combination which already exitsts if we are not in detail mode
+            # This prevents a user interaction and overwriting the files!
+            if {'symbol': symbol, 'hp_set':hp_set} in symbols_to_skip_wrs and not detail:
+                continue
+            if {'symbol': symbol, 'hp_set':hp_set} not in symbols_to_skip_wrs and detail:
+                continue
             #print(hp_set, batch_dict['search_hyperparamerts'][hp_set])
             #setup the run config
             cfg['timespan']['start_date'] = start_date_dict[symbol]
             cfg['symbol'] = symbol
             cfg['hp_set'] = hp_set
+            study_name_wrs = get_study_name(cfg)
+            path_wrs = get_csv_path(cfg)
+            if detail:
+                cfg['optimizer'] = cfg['optimizer']
+                cfg['n_iter'] = cfg['n_iter_step2']
+                cfg['detail'] = True
             update_config(cfg)
-            run_optimization(batchmode=True, cfg=cfg, hp_dict=batch_dict['search_hyperparamerts'][hp_set])
-            best_candidates_hps = get_best_candidates(cfg)
-            create_charts(best_candidates_hps, cfg)
+            if not detail:
+                run_optimization(batchmode=True, cfg=cfg, hp_dict=batch_dict['search_hyperparamerts'][hp_set])
+                best_candidates_hps = get_best_candidates(cfg)
+                create_charts(best_candidates_hps, cfg)
+            else:
+                # get the best candidates:
+                # load the csv
+                path__wo_ext = os.path.splitext(path_wrs)[0]
+                path_to_sorted_results = f"{path__wo_ext}_best.csv"
+                optimization_results_sorted = pd.read_csv(path_to_sorted_results, sep='\t', lineterminator='\n')
+                # load the hyperparameters of the strategy to parse the parameters from the csv
+                StrategyClass = jh.get_strategy_class(cfg['strategy_name'])
+                hp_dict = StrategyClass().hyperparameters()
+                hps = [hp['name'] for hp in hp_dict]
+
+                for i in range(candidates_count):
+                    if i < len(optimization_results_sorted.index):
+                        res_row = optimization_results_sorted.iloc[[i]]
+                        hp_list = {'id': int(res_row.index[0])}
+                        for hp in hps:
+                            hp_list[hp] = res_row.iloc[0][hp]
+                        best_hps[hp_list['id']]  = hp_list
+
+                print(f"The best Hyperparamerts of {symbol} - {hp_set} are: ", best_hps)
+
+                for hp in best_hps:
+                    cfg['detail_id'] = hp
+                    run_optimization(batchmode=True, cfg=cfg, hp_dict=dict(best_hps[hp])
+                    best_candidates_hps = get_best_candidates(cfg)
+                    create_charts(best_candidates_hps, cfg)
+
 
 @cli.command()
 def create_charts() -> None:
@@ -275,6 +334,15 @@ def create_charts() -> None:
             best_candidates_hps = get_best_candidates(cfg)
             print(f"Create Chart for {symbol} - {hp_set}")
             create_charts(best_candidates_hps, cfg)
+
+@cli.command()
+def detail_search() -> None:
+
+
+def check_if_optimization_exists(cfg) -> bool:
+    path = get_csv_path(cfg)
+    return jh.file_exists(path):
+
 
 def get_batch_dict() -> dict:
     batch_path = "hyperactive_batch.json"
@@ -304,6 +372,10 @@ def get_batch_dict() -> dict:
                                     }
                                 ]
                             }
+                    "detail_search_range":{
+                                {
+                                "sma": 2,
+                                }
                     }
         with open(batch_path, 'w') as outfile:
             json.dump(batch_dict, outfile, indent=4, sort_keys=True)
@@ -401,13 +473,17 @@ def create_run_config(cfg, run_settings) -> dict:
         run_config[key] = run_settings[key]
     return run_config
 
-
 def get_study_name(cfg) -> str:
     if 'hp_set' in cfg:
         hp_set = f"-{cfg['hp_set']}"
     else:
         hp_set = ''
-    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}{hp_set}"
+    detail = ''
+    if 'detail' in cfg:
+        if cfg['detail']:
+            detail = "-detail"
+        
+    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}{detail}{hp_set}"
 
 def get_csv_path(cfg) -> str:
     study_name = get_study_name(cfg)
@@ -415,7 +491,11 @@ def get_csv_path(cfg) -> str:
         hp_set = f"/{cfg['hp_set']}"
     else:
         hp_set = ''
-    return f"storage/jesse-hyperactive/csv/{cfg['symbol']}{hp_set}/{study_name}.csv"
+    detail = ''
+    if 'detail' in cfg:
+        if cfg['detail']:
+            detail = "-detail"
+    return f"storage/jesse-hyperactive/csv/{cfg['symbol']}{detail}{hp_set}/{study_name}.csv"
 
 def objective(opt):
     cfg = get_config(running=True)
@@ -612,7 +692,11 @@ def get_best_candidates(cfg, start_capital=1000):
     
     best_hps = {}
     #check if there enough candidates
-    candidates_count = 5 if results_filtered.shape[0] >=5 else results_filtered.shape[0]
+    if 'n_best_candidates' in cfg:
+        n_best_candidates = cfg['n_best_candidates']
+    else:
+        n_best_candidates = 5
+    candidates_count = n_best_candidates if results_filtered.shape[0] >=n_best_candidates else results_filtered.shape[0]
     if candidates_count == 0: 
         print("Backtest has no results.")
         return
