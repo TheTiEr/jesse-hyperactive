@@ -254,7 +254,7 @@ def wrs_search(detail=False) -> None:
     for symbol in batch_dict['symbols']:
         # run the optimzation for every hyperparameterset
         for hp_set in batch_dict['search_hyperparameters']:
-            cfg['timespan']['start_date'] = start_date_dict[symbol]
+            #cfg['timespan']['start_date'] = start_date_dict[symbol]
             cfg['symbol'] = symbol
             cfg['hp_set'] = hp_set
             if check_if_optimization_exists(cfg):
@@ -267,14 +267,14 @@ def wrs_search(detail=False) -> None:
     # iterate over the symbols
     for symbol in batch_dict['symbols']:
         # run the optimzation for every hyperparameterset
-        for hp_set in batch_dict['search_hyperparamerts']:
+        for hp_set in batch_dict['search_hyperparameters']:
             # skip the symbols and hp_set combination which already exitsts if we are not in detail mode
             # This prevents a user interaction and overwriting the files!
             if {'symbol': symbol, 'hp_set':hp_set} in symbols_to_skip_wrs and not detail:
                 continue
             if {'symbol': symbol, 'hp_set':hp_set} not in symbols_to_skip_wrs and detail:
                 continue
-            #print(hp_set, batch_dict['search_hyperparamerts'][hp_set])
+            #print(hp_set, batch_dict['search_hyperparameters'][hp_set])
             #setup the run config
             cfg['timespan']['start_date'] = start_date_dict[symbol]
             cfg['symbol'] = symbol
@@ -287,7 +287,7 @@ def wrs_search(detail=False) -> None:
                 cfg['detail'] = True
             update_config(cfg)
             if not detail:
-                run_optimization(batchmode=True, cfg=cfg, hp_dict=batch_dict['search_hyperparamerts'][hp_set])
+                run_optimization(batchmode=True, cfg=cfg, hp_dict=batch_dict['search_hyperparameters'][hp_set])
                 best_candidates_hps = get_best_candidates(cfg)
                 create_charts(best_candidates_hps, cfg)
             else:
@@ -301,7 +301,14 @@ def wrs_search(detail=False) -> None:
                 hp_dict = StrategyClass().hyperparameters()
                 hps = [hp['name'] for hp in hp_dict]
 
-                for i in range(candidates_count):
+                best_hps = {}
+                #check if there enough candidates
+                if 'n_best_candidates' in cfg:
+                    n_best_candidates = cfg['n_best_candidates']
+                else:
+                    n_best_candidates = 5
+
+                for i in range(n_best_candidates):
                     if i < len(optimization_results_sorted.index):
                         res_row = optimization_results_sorted.iloc[[i]]
                         hp_list = {'id': int(res_row.index[0])}
@@ -313,7 +320,20 @@ def wrs_search(detail=False) -> None:
 
                 for hp in best_hps:
                     cfg['detail_id'] = hp
-                    run_optimization(batchmode=True, cfg=cfg, hp_dict=dict(best_hps[hp])
+                    # create the hp_dict 
+                    hp_dict = batch_dict['search_hyperparameters'][hp_set]
+                    for param in hp_dict:
+                        param_name = param['name']
+                        if type(param['type']) == int:
+                            param['default'] =  int(best_hps[hp][param_name])
+                            param['min'] = int(best_hps[hp][param_name] - batch_dict['detail_search_range'][param_name])
+                            param['max'] = int(best_hps[hp][param_name] + batch_dict['detail_search_range'][param_name])
+                        elif type(param['type']) == float:
+                            param['default'] =  best_hps[hp][param_name]
+                            param['min'] = best_hps[hp][param_name] - batch_dict['detail_search_range'][param_name]
+                            param['max'] = best_hps[hp][param_name] + batch_dict['detail_search_range'][param_name]
+                    update_config(cfg)
+                    run_optimization(batchmode=True, cfg=cfg, hp_dict=hp_dict)
                     best_candidates_hps = get_best_candidates(cfg)
                     create_charts(best_candidates_hps, cfg)
 
@@ -326,7 +346,7 @@ def create_charts() -> None:
     start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg, no_download=True)
     for symbol in batch_dict['symbols']:
         # run the optimzation for every hyperparameterset
-        for hp_set in batch_dict['search_hyperparamerts']:
+        for hp_set in batch_dict['search_hyperparameters']:
             cfg['timespan']['start_date'] = start_date_dict[symbol]
             cfg['symbol'] = symbol
             cfg['hp_set'] = hp_set
@@ -335,13 +355,9 @@ def create_charts() -> None:
             print(f"Create Chart for {symbol} - {hp_set}")
             create_charts(best_candidates_hps, cfg)
 
-@cli.command()
-def detail_search() -> None:
-
-
 def check_if_optimization_exists(cfg) -> bool:
     path = get_csv_path(cfg)
-    return jh.file_exists(path):
+    return jh.file_exists(path)
 
 
 def get_batch_dict() -> dict:
@@ -352,7 +368,7 @@ def get_batch_dict() -> dict:
         sleep(0.5)
         batch_dict = {
                     "symbols": ["BTC-USDT", "ETH-USDT"],
-                    "search_hyperparamerts":{
+                    "search_hyperparameters":{
                             "safe":[
                                     {
                                     "name": "sma",
@@ -371,9 +387,8 @@ def get_batch_dict() -> dict:
                                     "default": 2
                                     }
                                 ]
-                            }
+                            },
                     "detail_search_range":{
-                                {
                                 "sma": 2,
                                 }
                     }
@@ -388,11 +403,11 @@ def get_batch_dict() -> dict:
         try:
             with open(batch_path, 'r', encoding='UTF-8') as dna_settings: 
                 batch_dict = json.load(dna_settings)
-                if "search_hyperparamerts" in batch_dict:
-                    for hp_dicts in batch_dict["search_hyperparamerts"]:
-                        print(hp_dicts, batch_dict["search_hyperparamerts"][hp_dicts])
-                        for hp in batch_dict["search_hyperparamerts"][hp_dicts]: 
-                            print("hp", batch_dict["search_hyperparamerts"][hp_dicts], hp["type"])
+                if "search_hyperparameters" in batch_dict:
+                    for hp_dicts in batch_dict["search_hyperparameters"]:
+                        print(hp_dicts, batch_dict["search_hyperparameters"][hp_dicts])
+                        for hp in batch_dict["search_hyperparameters"][hp_dicts]: 
+                            print("hp", batch_dict["search_hyperparameters"][hp_dicts], hp["type"])
                             hp["type"] = eval(hp["type"])
 
                 return batch_dict
@@ -482,8 +497,12 @@ def get_study_name(cfg) -> str:
     if 'detail' in cfg:
         if cfg['detail']:
             detail = "-detail"
+    if 'detail_id' in cfg:
+        detail_id = f"-{cfg['detail_id']}"
+    else:
+        detail_id = ''
         
-    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}{detail}{hp_set}"
+    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}{detail}{hp_set}{detail_id}"
 
 def get_csv_path(cfg) -> str:
     study_name = get_study_name(cfg)
@@ -494,7 +513,7 @@ def get_csv_path(cfg) -> str:
     detail = ''
     if 'detail' in cfg:
         if cfg['detail']:
-            detail = "-detail"
+            detail = "/detail"
     return f"storage/jesse-hyperactive/csv/{cfg['symbol']}{detail}{hp_set}/{study_name}.csv"
 
 def objective(opt):
