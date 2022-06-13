@@ -277,12 +277,13 @@ def wrs_search(detail=False) -> None:
 
             # only in detail
             #check if symbol and hp_set should
-            if "detail_sets" in batch_dict: 
-                if symbol not in batch_dict["detail_sets"]:
-                    continue
-                else:
-                    if hp_set not in batch_dict["detail_sets"][symbol]:
+            if detail:
+                if "detail_sets" in batch_dict: 
+                    if symbol not in batch_dict["detail_sets"]:
                         continue
+                    else:
+                        if hp_set not in batch_dict["detail_sets"][symbol]:
+                            continue
 
             #print(hp_set, batch_dict['search_hyperparameters'][hp_set])
             #setup the run config
@@ -292,7 +293,7 @@ def wrs_search(detail=False) -> None:
             study_name_wrs = get_study_name(cfg)
             path_wrs = get_csv_path(cfg)
             if detail:
-                cfg['optimizer'] = cfg['optimizer']
+                cfg['optimizer'] = cfg['optimizer_step2']
                 cfg['n_iter'] = cfg['n_iter_step2']
                 cfg['detail'] = True
             update_config(cfg)
@@ -367,6 +368,33 @@ def create_charts() -> None:
             print(f"Create Chart for {symbol} - {hp_set}")
             create_charts(best_candidates_hps, cfg)
 
+@cli.command()
+def rolling() -> None:
+    rolling_search()
+
+def rolling_search() -> None:
+    cfg = get_config()
+    batch_dict = get_batch_dict()
+
+    # import candles
+    print("Going to run the optimization for the symbols: ", batch_dict["symbols"])
+    start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg, no_download=detail)
+    for symbol in batch_dict['rolling_symbols']:
+        # get hp_parameters from strategy
+        StrategyClass = jh.get_strategy_class(cfg['strategy_name'])
+        hp_dict = StrategyClass().hyperparameters(force_symbol=symbol)
+        cfg['timespan']['start_date'] = start_date_dict[symbol]
+        cfg['symbol'] = symbol
+        cfg['optimizer'] = cfg['optimizer_rolling']
+        cfg['n_iter'] = cfg['n_iter_rolling']
+        cfg['rolling'] = True
+        update_config(cfg)
+
+        print(hp_dict)
+        run_optimization(batchmode=True, cfg=cfg, hp_dict=hp_dict)
+        best_candidates_hps = get_best_candidates(cfg)
+        create_charts(best_candidates_hps, cfg)
+
 def check_if_optimization_exists(cfg) -> bool:
     path = get_csv_path(cfg)
     return jh.file_exists(path)
@@ -379,6 +407,7 @@ def get_batch_dict() -> dict:
         print("There is no file with symbols which should be optimized.")
         sleep(0.5)
         batch_dict = {
+                    "rolling_symbols": ["BTC-USDT", "ETH-USDT"],
                     "symbols": ["BTC-USDT", "ETH-USDT"],
                     "search_hyperparameters":{
                             "safe":[
@@ -505,6 +534,9 @@ def create_run_config(cfg, run_settings) -> dict:
     return run_config
 
 def get_study_name(cfg) -> str:
+    if 'rolling' in cfg: 
+        return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}-rolling-{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}"
+
     if 'hp_set' in cfg:
         hp_set = f"-{cfg['hp_set']}"
     else:
@@ -522,6 +554,10 @@ def get_study_name(cfg) -> str:
 
 def get_csv_path(cfg) -> str:
     study_name = get_study_name(cfg)
+
+    if 'rolling' in cfg:
+        return f"storage/jesse-hyperactive/csv/{cfg['symbol']}/rolling/{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}/{study_name}.csv"
+
     if 'hp_set' in cfg:
         hp_set = f"/{cfg['hp_set']}"
     else:
