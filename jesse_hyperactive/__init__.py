@@ -261,7 +261,7 @@ def wrs_search(detail=False) -> None:
                 symbols_to_skip_wrs.append({'symbol': symbol, 'hp_set':hp_set})
 
     print("Going to run the optimization for the symbols: ", batch_dict["symbols"])
-    start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg)
+    start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg, no_download=detail)
 
     # step1 Optimization
     # iterate over the symbols
@@ -274,6 +274,16 @@ def wrs_search(detail=False) -> None:
                 continue
             if {'symbol': symbol, 'hp_set':hp_set} not in symbols_to_skip_wrs and detail:
                 continue
+
+            # only in detail
+            #check if symbol and hp_set should
+            if "detail_sets" in batch_dict: 
+                if symbol not in batch_dict["detail_sets"]:
+                    continue
+                else:
+                    if hp_set not in batch_dict["detail_sets"][symbol]:
+                        continue
+
             #print(hp_set, batch_dict['search_hyperparameters'][hp_set])
             #setup the run config
             cfg['timespan']['start_date'] = start_date_dict[symbol]
@@ -311,7 +321,7 @@ def wrs_search(detail=False) -> None:
                 for i in range(n_best_candidates):
                     if i < len(optimization_results_sorted.index):
                         res_row = optimization_results_sorted.iloc[[i]]
-                        hp_list = {'id': int(res_row.index[0])}
+                        hp_list = {'id': int(res_row.iloc[0][0])}
                         for hp in hps:
                             hp_list[hp] = res_row.iloc[0][hp]
                         best_hps[hp_list['id']]  = hp_list
@@ -324,14 +334,16 @@ def wrs_search(detail=False) -> None:
                     hp_dict = batch_dict['search_hyperparameters'][hp_set]
                     for param in hp_dict:
                         param_name = param['name']
-                        if type(param['type']) == int:
+                        if param['type'] == int:
                             param['default'] =  int(best_hps[hp][param_name])
                             param['min'] = int(best_hps[hp][param_name] - batch_dict['detail_search_range'][param_name])
                             param['max'] = int(best_hps[hp][param_name] + batch_dict['detail_search_range'][param_name])
-                        elif type(param['type']) == float:
+                        elif param['type'] == float:
                             param['default'] =  best_hps[hp][param_name]
                             param['min'] = best_hps[hp][param_name] - batch_dict['detail_search_range'][param_name]
                             param['max'] = best_hps[hp][param_name] + batch_dict['detail_search_range'][param_name]
+                    
+                    print(hp_dict)
                     update_config(cfg)
                     run_optimization(batchmode=True, cfg=cfg, hp_dict=hp_dict)
                     best_candidates_hps = get_best_candidates(cfg)
@@ -390,7 +402,11 @@ def get_batch_dict() -> dict:
                             },
                     "detail_search_range":{
                                 "sma": 2,
-                                }
+                                },
+                    "detail_sets":{
+                            "BTC-USDT":["safe", "risky"],
+                            "ETH-USDT":["risky"]
+                            }
                     }
         with open(batch_path, 'w') as outfile:
             json.dump(batch_dict, outfile, indent=4, sort_keys=True)
