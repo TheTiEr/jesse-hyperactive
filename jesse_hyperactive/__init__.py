@@ -378,7 +378,7 @@ def rolling_search() -> None:
 
     # import candles
     print("Going to run the optimization for the symbols: ", batch_dict["symbols"])
-    start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg, no_download=detail)
+    start_date_dict = import_candles_batch(batch_dict=batch_dict, cfg=cfg, no_download=False)
     for symbol in batch_dict['rolling_symbols']:
         # get hp_parameters from strategy
         StrategyClass = jh.get_strategy_class(cfg['strategy_name'])
