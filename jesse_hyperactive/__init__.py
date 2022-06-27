@@ -79,7 +79,7 @@ def run_optimization(batchmode=False, cfg=None, hp_dict=None) -> None:
 
     # tell the user which symbol is optimized
 
-    print("Run Study for ", cfg['symbol'], " from date: ", cfg['timespan']['start_date'])
+    print("Run Study for ", cfg['symbol'], " timespan: ", cfg['timespan']['start_date'], cfg['timespan']['finish_date'])
     study_name = get_study_name(cfg)
 
     path = get_csv_path(cfg)
@@ -478,11 +478,12 @@ def import_candles_batch(batch_dict, cfg, no_download=False) -> dict:
         if jh.date_to_timestamp(date_i['start_date']) < jh.date_to_timestamp(timespans[first_date]['start_date']):
             first_date = i+1
 
-    print(f"First testing date is {timespans[first_date]['start_date']}.")
-
+    # import 1 day more than needed:
+    import_date = timespans[first_date]['start_date']
+    import_date = jh.timestamp_to_date(jh.date_to_timestamp(import_date) - 60*60*24*1000)
     if not no_download:
         for symbol in batch_dict['symbols']: 
-            import_candles(cfg['exchange'], str(symbol), timespans[first_date]['start_date'], True)
+            import_candles(cfg['exchange'], str(symbol), import_date, True)
 
     # check if candles are imported succesfully for all symbols: 
     start_date_dict = {}
@@ -502,6 +503,7 @@ def import_candles_batch(batch_dict, cfg, no_download=False) -> dict:
                 print("Changing the start date for this symbol")
                 start_date_dict[symbol] = start_date
                 continue
+    
 
         start_date_dict[symbol] = timespans[first_date]['start_date']
     return start_date_dict
@@ -550,7 +552,7 @@ def get_study_name(cfg) -> str:
     else:
         detail_id = ''
         
-    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}{detail}{hp_set}{detail_id}"
+    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}-{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}-{detail}{hp_set}{detail_id}"
 
 def get_csv_path(cfg) -> str:
     study_name = get_study_name(cfg)
@@ -566,11 +568,10 @@ def get_csv_path(cfg) -> str:
     if 'detail' in cfg:
         if cfg['detail']:
             detail = "/detail"
-    return f"storage/jesse-hyperactive/csv/{cfg['symbol']}{detail}{hp_set}/{study_name}.csv"
+    return f"storage/jesse-hyperactive/csv/{cfg['symbol']}{detail}{hp_set}/{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}/{study_name}.csv"
 
 def objective(opt):
     cfg = get_config(running=True)
-
     try:
         training_data_metrics = backtest_function(cfg['timespan']['start_date'],
                                                   cfg['timespan']['finish_date'],
@@ -624,7 +625,7 @@ def objective(opt):
     score = total_effect_rate * ratio_normalized
 
     # you can access the entire dictionary from "para"
-    parameter_dict = opt.para_dict
+    parameter_dict = dict(opt.para_dict)
 
     # save the score in the copy of the dictionary
     parameter_dict["score"] = score
@@ -793,11 +794,15 @@ def create_charts(best_hps, cfg):
     for hp in best_hps:
         print("Create the Chart for id", hp)
         hyperparameters=dict(best_hps[hp])
-
+        del hyperparameters['id']
+        print("using hyperparameters: ", hyperparameters)
+        print("Timespan: ", cfg['timespan']['start_date'], cfg['timespan']['finish_date'])
         backtest_data_dict = backtest_function(cfg['timespan']['start_date'],
                                                   cfg['timespan']['finish_date'],
                                                   hp=hyperparameters, cfg=cfg,
                                                   charts=True, quantstats=True)
+
+        print("finishing_balance", backtest_data_dict['metrics']['finishing_balance'], "Net_Profit: ", backtest_data_dict['metrics']['net_profit'])
         path__wo_ext = os.path.splitext(get_csv_path(cfg))[0]
         if "charts" in backtest_data_dict:
             study_name = get_study_name(cfg)
