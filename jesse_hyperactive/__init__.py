@@ -344,11 +344,11 @@ def wrs_search(detail=False) -> None:
                             param['min'] = best_hps[hp][param_name] - batch_dict['detail_search_range'][param_name]
                             param['max'] = best_hps[hp][param_name] + batch_dict['detail_search_range'][param_name]
                     
-                    print(hp_dict)
                     update_config(cfg)
                     run_optimization(batchmode=True, cfg=cfg, hp_dict=hp_dict)
                     best_candidates_hps = get_best_candidates(cfg)
                     create_charts(best_candidates_hps, cfg)
+                print(hp_dict)
 
 
 @cli.command()
@@ -721,8 +721,13 @@ def backtest_function(start_date, finish_date, hp, cfg, charts=False, quantstats
         'futures_leverage_mode': cfg['futures_leverage_mode'],
         'exchange': cfg['exchange'],
         'settlement_currency': cfg['settlement_currency'],
-        'warm_up_candles': cfg['warm_up_candles']
+        'warm_up_candles': cfg['warm_up_candles'],
+        'type': cfg['type']
     }
+
+    # setup the warmupcandles num otherwise it wont be set
+    from jesse.config import config as jesse_config
+    jesse_config['env']['data']['warmup_candles_num'] = cfg['warm_up_candles']
 
     if not charts and not quantstats:
         backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp)['metrics']
