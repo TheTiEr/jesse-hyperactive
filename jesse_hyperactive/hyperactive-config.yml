@@ -59,7 +59,8 @@ futures_leverage: 1
 futures_leverage_mode: cross
 settlement_currency: USDT
 warm_up_candles: 1000
-exchange: Binance
+exchange: 'Binance Spot'
+type: 'spot'
 symbol: 'HBAR-USDT'
 timeframe: '15m'
 
