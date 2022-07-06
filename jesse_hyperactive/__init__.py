@@ -615,6 +615,9 @@ def objective(opt):
     elif ratio_config == 'net profit':
         ratio = training_data_metrics['net_profit_percentage']
         ratio_normalized = jh.normalize(ratio, -.5, 200)
+    elif ratio_config == 'net profit * win_rate':
+        ratio = training_data_metrics['net_profit_percentage'] * training_data_metrics['win_rate']
+        ratio_normalized = jh.normalize(ratio, -.5, 200)
     else:
         raise ValueError(
             f'The entered ratio configuration `{ratio_config}` for the optimization is unknown. Choose between sharpe, calmar, sortino, serenity, smart shapre, smart sortino and omega.')
@@ -723,6 +726,10 @@ def backtest_function(start_date, finish_date, hp, cfg, charts=False, quantstats
         'settlement_currency': cfg['settlement_currency'],
         'warm_up_candles': cfg['warm_up_candles']
     }
+
+    from jesse.helpers import get_config as get_jesse_config
+    if not cfg['warm_up_candles'] == get_jesse_config('env.data.warmup_candles_num'):
+        print("Warmup candles setting is not set correct!", get_jesse_config('env.data.warmup_candles_num'))
 
     if not charts and not quantstats:
         backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp)['metrics']
