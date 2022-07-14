@@ -441,7 +441,7 @@ def get_batch_dict() -> dict:
             json.dump(batch_dict, outfile, indent=4, sort_keys=True)
         print("I created a file for you at ", batch_path , ":)")
         sleep(0.5)
-        print("Please fill in your symbols and restart with: 'jesse-optuna batchrun' again")
+        print("Please fill in your symbols and the hyperparameters of your strategy and restart with: 'jesse-optuna wrs' again")
         sleep(0.5)
         exit()
     else:
@@ -537,7 +537,7 @@ def create_run_config(cfg, run_settings) -> dict:
 
 def get_study_name(cfg) -> str:
     if 'rolling' in cfg: 
-        return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}-rolling-{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}"
+        return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['type']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}-rolling-{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}"
 
     if 'hp_set' in cfg:
         hp_set = f"-{cfg['hp_set']}"
@@ -552,7 +552,7 @@ def get_study_name(cfg) -> str:
     else:
         detail_id = ''
         
-    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}-{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}-{detail}{hp_set}{detail_id}"
+    return f"{cfg['strategy_name']}-{cfg['exchange']}-{cfg['type']}-{cfg['optimizer']}-{cfg['symbol']}-{cfg['timeframe']}-{cfg['timespan']['start_date']}-{cfg['timespan']['finish_date']}-{detail}{hp_set}{detail_id}"
 
 def get_csv_path(cfg) -> str:
     study_name = get_study_name(cfg)
@@ -674,7 +674,7 @@ def get_candles_with_cache(exchange: str, symbol: str, start_date: str, finish_d
     cache_file_name = f"{exchange}-{symbol}-1m-{start_date}-{finish_date}.pickle"
     cache_file = pathlib.Path(f'storage/jesse-hyperactive/{cache_file_name}')
 
-    if cache_file.is_file():
+    if cache_file.is_file() and False:
         with open(f'storage/jesse-hyperactive/{cache_file_name}', 'rb') as handle:
             candles = pickle.load(handle)
     else:
@@ -685,7 +685,7 @@ def get_candles_with_cache(exchange: str, symbol: str, start_date: str, finish_d
     return candles
 
 
-def backtest_function(start_date, finish_date, hp, cfg, charts=False, quantstats=False):
+def backtest_function(start_date, finish_date, hp, cfg, charts=False, quantstats=False, csv=False):
     candles = {}
     extra_routes = []
     if cfg['extra_routes'] is not None:
@@ -728,22 +728,25 @@ def backtest_function(start_date, finish_date, hp, cfg, charts=False, quantstats
         'type': cfg['type']
     }
 
+    from jesse.helpers import get_config as get_jesse_config
 
     # setup the warmupcandles num otherwise it wont be set
     from jesse.config import config as jesse_config
     jesse_config['env']['data']['warmup_candles_num'] = cfg['warm_up_candles']
-
-    from jesse.helpers import get_config as get_jesse_config
+    
     if not cfg['warm_up_candles'] == get_jesse_config('env.data.warmup_candles_num'):
-        print("Warmup candles setting is not set correct!", get_jesse_config('env.data.warmup_candles_num'))
+        raise ValueError(f"Warmup Candles Setting in config ({cfg['warm_up_candles']}) is not the same as in the jesse configs ({get_jesse_config('env.data.warmup_candles_num')}).\n \
+                            Please change it in the config file from jesse. It is located at: '~/.local/lib/python3.8/site-packages/jesse/config.py'.\
+                            Due to type conversion problems with enviroment variables its not possible to set it via this script. \
+                            The developer of jesse is informed about this issue and will change this soon. So that there is no need to change it manually.")
 
-    if not charts and not quantstats:
+    if not charts and not quantstats and not csv:
         backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp)['metrics']
         if backtest_data['total'] == 0:
             backtest_data = empty_backtest_data
         return backtest_data
     else:
-        backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp, generate_charts=True, generate_quantstats=True)
+        backtest_data = backtest(config, route, extra_routes=extra_routes, candles=candles, hyperparameters=hp, generate_charts=charts, generate_quantstats=quantstats, generate_csv=csv)
         return backtest_data
 
 def get_best_candidates(cfg, start_capital=1000):
@@ -766,11 +769,11 @@ def get_best_candidates(cfg, start_capital=1000):
     # calculate my ratio
     results_filtered['real_max_loosing_trade_percentage']
 
-    results_filtered['my_ratio2'] = results_filtered.real_net_profit_percentage# - (results_filtered.gross_loss_percentage*results_filtered.gross_loss_percentage) + 3*results_filtered.gross_loss_percentage \
+    results_filtered['custom_ratio'] = results_filtered.real_net_profit_percentage# - (results_filtered.gross_loss_percentage*results_filtered.gross_loss_percentage) + 3*results_filtered.gross_loss_percentage \
                                 #* results_filtered.longs_count **(1/5) * results_filtered.win_rate
 
     # sort the results descending by my_ratio
-    results_filtered = results_filtered.sort_values(by=['my_ratio2'], ascending=False)
+    results_filtered = results_filtered.sort_values(by=['custom_ratio'], ascending=False)
 
     path__wo_ext = os.path.splitext(get_csv_path(cfg))[0]
     path_to_sorted_results = f"{path__wo_ext}_best.csv"
@@ -813,7 +816,7 @@ def create_charts(best_hps, cfg):
         backtest_data_dict = backtest_function(cfg['timespan']['start_date'],
                                                   cfg['timespan']['finish_date'],
                                                   hp=hyperparameters, cfg=cfg,
-                                                  charts=True, quantstats=True)
+                                                  charts=True, quantstats=True, csv=True)
 
         print("finishing_balance", backtest_data_dict['metrics']['finishing_balance'], "Net_Profit: ", backtest_data_dict['metrics']['net_profit'])
         path__wo_ext = os.path.splitext(get_csv_path(cfg))[0]
@@ -825,3 +828,7 @@ def create_charts(best_hps, cfg):
             study_name = get_study_name(cfg)
             path = f"{path__wo_ext}_best_{hp}.html"
             shutil.copyfile(backtest_data_dict["quantstats"], path)
+        if "csv" in backtest_data_dict:
+            study_name = get_study_name(cfg)
+            path = f"{path__wo_ext}_best_{hp}.csv"
+            shutil.copyfile(backtest_data_dict["csv"], path)
