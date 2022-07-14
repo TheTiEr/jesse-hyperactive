@@ -674,7 +674,7 @@ def get_candles_with_cache(exchange: str, symbol: str, start_date: str, finish_d
     cache_file_name = f"{exchange}-{symbol}-1m-{start_date}-{finish_date}.pickle"
     cache_file = pathlib.Path(f'storage/jesse-hyperactive/{cache_file_name}')
 
-    if cache_file.is_file() and False:
+    if cache_file.is_file():
         with open(f'storage/jesse-hyperactive/{cache_file_name}', 'rb') as handle:
             candles = pickle.load(handle)
     else:
